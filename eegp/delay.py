@@ -12,7 +12,7 @@ from .base import BaseDataset
 
 
 class DelayMatch(BaseDataset):
-    """延时匹配的基类，仅定义参数
+    """延时匹配的基类
     """
     def __init__(self,
                  code,
@@ -55,15 +55,6 @@ class DelayMatch(BaseDataset):
         self.baseline = baseline
         self.reject = reject
         self.verbose = verbose
-
-
-class Letter(DelayMatch):
-    """延时匹配-字母
-    """
-    def __init__(self, *args, **kwargs):
-        super(Letter, self).__init__(code='Delay Match Letter',
-                                     *args,
-                                     **kwargs)
 
     def get_raw(self, path, bad_path):
         if isinstance(path, str):
@@ -203,6 +194,15 @@ class Letter(DelayMatch):
         raw.set_montage(ten_twenty_montage, match_case=False)
         raw.interpolate_bads()
         return raw
+
+
+class Letter(DelayMatch):
+    """延时匹配-字母
+    """
+    def __init__(self, *args, **kwargs):
+        super(Letter, self).__init__(code='Delay Match Letter',
+                                     *args,
+                                     **kwargs)
 
     def _event_tranform(self, events_old, event_id_old):
         """将 22 44 88 转为 easy medium hard 

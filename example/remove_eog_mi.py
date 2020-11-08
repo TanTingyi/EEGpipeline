@@ -14,6 +14,7 @@ class RemoveEOG(MI):
         raw = self.preprocess(raw)
         raw.save(path)
 
+
 if __name__ == "__main__":
     dm = RemoveEOG(tmin=1.,
                    tmax=2,

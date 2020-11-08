@@ -57,7 +57,9 @@ class MI(BaseDataset):
         self.verbose = verbose
 
     def get_raw(self, paths, bad_path=None):
-        raw = concatenate_raws([read_raw_edf(f, preload=True) for f in paths])
+        raw = concatenate_raws([
+            read_raw_edf(f, preload=True, verbose=self.verbose) for f in paths
+        ])
         return raw
 
     def preprocess(self, raws):

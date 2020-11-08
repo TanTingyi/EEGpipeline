@@ -134,7 +134,7 @@ class MI(BaseDataset):
         ]
         for raw, ica in zip(raws, icas):
             eog_inds, _ = ica.find_bads_eog(raw,
-                                            ch_name='FPZ',
+                                            ch_name='Fpz',
                                             verbose=self.verbose)
             if eog_inds:
                 break

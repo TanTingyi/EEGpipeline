@@ -1,6 +1,6 @@
 import os
 
-from smd.delay import Letter
+from eegp.delay import Letter
 
 
 class RemoveEOG(Letter):

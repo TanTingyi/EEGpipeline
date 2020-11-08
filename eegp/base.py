@@ -69,7 +69,7 @@ class BaseDataset(metaclass=abc.ABCMeta):
             paths = ['s1_1_1.cnt',
                     's1_2_1.cnt',
                     's1_3_1.cnt']
-        bad_path : str            
+        bad_path : None | str 
             坏道记录文件的路径，坏道描述以空格隔开
         Returns         
         -------

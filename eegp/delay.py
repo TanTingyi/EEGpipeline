@@ -74,7 +74,7 @@ class DelayMatch(BaseDataset):
         return raw
 
     def preprocess(self, raws):
-        if isinstance(raws, mne.io.Raw):
+        if not isinstance(raws, list):
             raws = [raws]
         for raw in raws:
             # 去除部分无关电极并对坏道插值
@@ -143,7 +143,7 @@ class DelayMatch(BaseDataset):
         ica.plot_properties(raw, eog_inds)
         ica.exclude = eog_inds
         ica.apply(raw)
-        return ica
+        return raw
 
     def _run_template_ica(self, raws):
         icas = [

@@ -1,6 +1,3 @@
-import os
-import sys
-sys.path.append(r'E:\Python\EEGpipline')
 from mne.datasets import eegbci
 from eegp.mi import MI
 

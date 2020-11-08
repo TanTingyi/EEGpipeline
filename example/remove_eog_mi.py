@@ -4,7 +4,7 @@ from eegp.mi import MI
 
 class RemoveEOG(MI):
     def pipeline(self, path):
-        """使用模板匹配的方法去除眼电，并保存结果
+        """对单个被试使用ICA去除眼电，并保存结果
         """
         subject = 1
         runs = [6, 10, 14]  # motor imagery: hands vs feet

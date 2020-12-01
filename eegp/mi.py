@@ -22,8 +22,7 @@ class MI(BaseDataset):
                  filter_high=30.,
                  resample=160,
                  baseline=None,
-                 reject=None,
-                 verbose=0):
+                 reject=None):
         """
         Parameters
         ----------
@@ -43,8 +42,6 @@ class MI(BaseDataset):
             阈值去除的阈值，例如 dict(eeg=200e-6) 将在
             分 trail 的时候丢弃峰峰值为 200 mv 的数据段
             为 None 时不启用
-        verbose : int | bool
-            数据处理过程中是否打印状态
         """
         super(MI, self).__init__(code='PhysioNet MI')
         self.tmin = tmin
@@ -54,12 +51,9 @@ class MI(BaseDataset):
         self.resample = resample
         self.baseline = baseline
         self.reject = reject
-        self.verbose = verbose
 
     def get_raw(self, paths, bad_path=None):
-        raw = concatenate_raws([
-            read_raw_edf(f, preload=True, verbose=self.verbose) for f in paths
-        ])
+        raw = concatenate_raws([read_raw_edf(f, preload=True) for f in paths])
         return raw
 
     def preprocess(self, raws):
@@ -73,8 +67,7 @@ class MI(BaseDataset):
             # 带通滤波
             raw.filter(self.filter_low,
                        self.filter_high,
-                       skip_by_annotation='edge',
-                       verbose=self.verbose)
+                       skip_by_annotation='edge')
         # ICA 去眼电
         if len(raws) > 1:
             raws = self._run_template_ica(raws)
@@ -88,9 +81,7 @@ class MI(BaseDataset):
         return raws[0] if len(raws) == 1 else raws
 
     def get_epochs(self, raw):
-        events, _ = events_from_annotations(raw,
-                                            event_id=dict(T1=2, T2=3),
-                                            verbose=self.verbose)
+        events, _ = events_from_annotations(raw, event_id=dict(T1=2, T2=3))
         event_id = dict(hands=2, feet=3)
 
         epochs = Epochs(raw,
@@ -101,25 +92,22 @@ class MI(BaseDataset):
                         proj=True,
                         baseline=self.baseline,
                         reject=self.reject,
-                        preload=True,
-                        verbose=self.verbose)
+                        preload=True)
         epochs = epochs.resample(self.resample)
         return epochs
 
     def get_data(self, epochs):
-        data = epochs.crop(tmin=self.tmin,
-                           tmax=self.tmax,
-                           verbose=self.verbose).get_data().astype(np.float32)
+        data = epochs.copy().crop(tmin=self.tmin,
+                                  tmax=self.tmax,
+                                  include_tmax=False).get_data().astype(
+                                      np.float32)
         label = epochs.events[:, -1]
         return data, label
 
     def _run_ica(self, raw):
         ica = ICA(n_components=15, random_state=2020)
-        ica.fit(raw, verbose=self.verbose)
-        eog_inds, _ = ica.find_bads_eog(raw,
-                                        ch_name='Fpz',
-                                        threshold=3,
-                                        verbose=self.verbose)
+        ica.fit(raw)
+        eog_inds, _ = ica.find_bads_eog(raw, ch_name='Fpz', threshold=3)
         if not eog_inds:
             raise RuntimeError('未找到合适眼电成分，减小阈值继续尝试')
         ica.plot_properties(raw, eog_inds)
@@ -128,14 +116,9 @@ class MI(BaseDataset):
         return raw
 
     def _run_template_ica(self, raws):
-        icas = [
-            ICA(n_components=15).copy().fit(raw, verbose=self.verbose)
-            for raw in raws
-        ]
+        icas = [ICA(n_components=15).copy().fit(raw) for raw in raws]
         for raw, ica in zip(raws, icas):
-            eog_inds, _ = ica.find_bads_eog(raw,
-                                            ch_name='Fpz',
-                                            verbose=self.verbose)
+            eog_inds, _ = ica.find_bads_eog(raw, ch_name='Fpz')
             if eog_inds:
                 break
         if not eog_inds:
@@ -145,8 +128,7 @@ class MI(BaseDataset):
         _ = corrmap(icas,
                     template=(0, eog_inds[0]),
                     threshold=0.8,
-                    label='blink',
-                    verbose=self.verbose)
+                    label='blink')
         for raw, ica in zip(raws, icas):
             ica.exclude = ica.labels_['blink']
             ica.apply(raw)
@@ -154,20 +136,15 @@ class MI(BaseDataset):
 
     def _run_reference(self, raw):
         # REST 重参考
-        sphere = mne.make_sphere_model('auto',
-                                       'auto',
-                                       raw.info,
-                                       verbose=self.verbose)
+        sphere = mne.make_sphere_model('auto', 'auto', raw.info)
         src = mne.setup_volume_source_space(sphere=sphere,
                                             exclude=30.,
-                                            pos=15.,
-                                            verbose=self.verbose)
+                                            pos=15.)
         forward = mne.make_forward_solution(raw.info,
                                             trans=None,
                                             src=src,
-                                            bem=sphere,
-                                            verbose=self.verbose)
-        raw.set_eeg_reference('REST', forward=forward, verbose=self.verbose)
+                                            bem=sphere)
+        raw.set_eeg_reference('REST', forward=forward)
         return raw
 
     def _run_channel_repair_exclud(self, raw):

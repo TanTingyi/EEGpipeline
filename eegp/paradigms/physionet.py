@@ -15,7 +15,7 @@ from mne.datasets import eegbci
 
 from .base import BaseParadigm
 from .utils import read_raw, remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..utils import _edge_index
+from ..utils import _edge_index, _check_paths
 
 
 class PhysioNetMI(BaseParadigm):
@@ -81,7 +81,7 @@ class PhysioNetMI(BaseParadigm):
         return self.__paths
 
     def read_raw(self, paths):
-        self.__paths = paths.copy()
+        self.__paths = _check_paths(paths).copy()
         self.__raws = read_raw(self.__paths)
 
     def preprocess(self):
@@ -106,7 +106,7 @@ class PhysioNetMI(BaseParadigm):
         if not self.__raws:
             raise RuntimeError(
                 'File haven\'t loaded yet, please load file first.')
-
+        self.__epochs = []
         for raw in self.__raws:
             events, event_id = self._define_trials(raw)
             epochs = Epochs(raw,
@@ -202,7 +202,8 @@ class MIFeetHand(PhysioNetMI):
     def make_data(self):
         if not self.epochs:
             self.make_epochs()
-
+        self._datas = []
+        self._labels = []
         for epoch in self.epochs:
             self._datas.append(epoch['Label == 1 or Label == 2'].copy().crop(
                 tmin=self.tmin, tmax=self.tmax,
@@ -223,6 +224,8 @@ class MILeftRight(PhysioNetMI):
         if not self.epochs:
             self.make_epochs()
 
+        self._datas = []
+        self._labels = []
         for epoch in self.epochs:
             self._datas.append(epoch['Label == 3 or Label == 4'].copy().crop(
                 tmin=self.tmin, tmax=self.tmax,

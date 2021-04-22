@@ -34,7 +34,6 @@ class Test(LetterSRT):
         self.read_raw(filepaths)
         self.preprocess()
         self.make_epochs()
-        tmp = self.epochs[0]['SRT>=0']
         self.make_data()
         self.save_data()
         self.save_metadata()

@@ -13,7 +13,7 @@ from mne import Epochs, events_from_annotations
 
 from .base import BaseParadigm
 from .utils import read_raw, remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..utils import _edge_index
+from ..utils import _edge_index, _check_paths
 
 
 class NBack(BaseParadigm):
@@ -81,7 +81,7 @@ class NBack(BaseParadigm):
         return self.__paths
 
     def read_raw(self, paths):
-        self.__paths = paths.copy()
+        self.__paths = _check_paths(paths).copy()
         self.__raws = read_raw(self.__paths)
 
     def preprocess(self):
@@ -103,7 +103,7 @@ class NBack(BaseParadigm):
         if not self.__raws:
             raise RuntimeError(
                 'File haven\'t loaded yet, please load file first.')
-
+        self.__epochs = []
         for raw in self.__raws:
             events_trials, event_id_trials = self._define_trials(raw)
             epochs = Epochs(raw,

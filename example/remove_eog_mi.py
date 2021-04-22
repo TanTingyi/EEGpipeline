@@ -36,6 +36,7 @@ if __name__ == "__main__":
                              resample=160,
                              remove_eog=True)
     group_size = 1
-    sub_group = np.array_split(np.arange(1, 2), group_size)
-    filepaths = make_filepath(r'E:\Data\tmp\mi', sub_group)
-    rm_group_eog.pipeline(filepaths)
+    sub_group = np.array_split(np.arange(1, 6), group_size)
+    for subs in sub_group:
+        filepaths = make_filepath(r'E:\Data\tmp\mi', subs)
+        rm_group_eog.pipeline(filepaths)

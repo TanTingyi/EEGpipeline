@@ -5,7 +5,7 @@ from mne.channels import make_standard_montage
 from mne.preprocessing import ICA, corrmap
 from mne.io import concatenate_raws, read_raw_cnt, read_raw_edf, read_raw_bdf
 from mne import make_sphere_model, setup_volume_source_space, make_forward_solution
-from ..utils import find_path_not_exist, depth_count, read_raw_brk
+from ..utils import find_path_not_exist, read_raw_brk
 
 
 def read_func(filetype, filepath):
@@ -19,20 +19,8 @@ def read_func(filetype, filepath):
         return read_raw_brk(filepath, preload=True)
 
 
-
 def read_raw(paths):
     raws = []
-    while depth_count(paths) < 1:
-        paths = [paths]
-    for path in paths:
-        file_uncheck = path.load_path[:]
-        if path.bad_channel_path:
-            file_uncheck.append(path.bad_channel_path)
-        _files_not_exist = find_path_not_exist(file_uncheck)
-
-        if _files_not_exist:
-            raise RuntimeError('These files do not exit:', *_files_not_exist)
-
     for subject_path in paths:
         raw = concatenate_raws([
             read_func(subject_path.filetype, f) for f in subject_path.load_path

@@ -138,19 +138,26 @@ def create_dir(path):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def _check_matches(arr1, arr2):
-    # check matches of two array
-    if len(arr1) != len(arr2):
-        return False
-    for data1, data2 in zip(arr1, arr2):
-        if data1 != data2:
-            return False
-    return True
-
-
 def _edge_index(raw):
     onsets, ends = _annotations_starts_stops(raw, 'edge', invert=True)
     index = {}
     for path, onset, end in zip(raw.filenames, onsets, ends):
         index[path] = (onset, end)
     return index
+
+
+def _check_paths(paths):
+    while depth_count(paths) < 1:
+        paths = [paths]
+    for path in paths:
+        if not isinstance(path.load_path, list):
+            path.load_path = [path.load_path]
+
+        file_uncheck = path.load_path[:]
+        if path.bad_channel_path:
+            file_uncheck.append(path.bad_channel_path)
+        _files_not_exist = find_path_not_exist(file_uncheck)
+
+        if _files_not_exist:
+            raise RuntimeError('These files do not exit:', *_files_not_exist)
+    return paths

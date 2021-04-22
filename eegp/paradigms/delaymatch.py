@@ -17,7 +17,7 @@ from mne.event import define_target_events, pick_events
 
 from .base import BaseParadigm
 from .utils import read_raw, remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..utils import _check_matches
+from ..utils import _check_paths
 
 
 class LetterDelayMatch(BaseParadigm):
@@ -85,7 +85,7 @@ class LetterDelayMatch(BaseParadigm):
         return self.__paths
 
     def read_raw(self, paths):
-        self.__paths = paths.copy()
+        self.__paths = _check_paths(paths).copy()
         self.__raws = read_raw(self.__paths)
 
     def preprocess(self):
@@ -108,10 +108,9 @@ class LetterDelayMatch(BaseParadigm):
         if not self.__raws:
             raise RuntimeError(
                 'File haven\'t loaded yet, please load file first.')
-
+        self.__epochs = []
         for raw in self.__raws:
             events_trials, event_id_trials = self._define_trials(raw)
-
             epochs = Epochs(raw,
                             events_trials,
                             event_id_trials,
@@ -219,15 +218,6 @@ class LetterDelayMatch(BaseParadigm):
             event_with_metadata[1] = events_maintenance[
                 events_maintenance[:, 0] == event_with_metadata[0]][0][1]
 
-        # only keep metadata of events in epochs.
-        events_with_metadata = events_with_metadata[
-            events_with_metadata[:, 0].argsort()]
-        index = np.isin(events_with_metadata[:, 0], epochs.events[:, 0])
-        events_with_metadata = events_with_metadata[index]
-        # check events and metadata array
-        if not _check_matches(events_with_metadata[:, 0], epochs.events[:, 0]):
-            raise RuntimeError('Metadata and events doesn\'t matches.')
-
         # help function
         def id_2_item(id):
             if id == event_id['22']:
@@ -237,20 +227,24 @@ class LetterDelayMatch(BaseParadigm):
             elif id == event_id['88']:
                 return 8
 
+        def find_by_index(index, array):
+            return array[array[:, 0] == index]
+
         # 5. create metadata from array
         columns = [
             'Sample index', 'Maintenance', 'Correct', 'Trial time',
             'Item amount'
         ]
         metadata = pd.DataFrame(columns=columns)
-        for i, event_with_metadata, in enumerate(events_with_metadata):
-            item_amount = id_2_item(
-                events[events[:, 0] == event_with_metadata[0]][0][2])
-            metadata_tmp = np.append(event_with_metadata, item_amount)
-            metadata_tmp[1] = metadata_tmp[1] / sfreq
-            metadata_tmp[3] = metadata_tmp[3] / sfreq
+        for i in range(len(epochs.events)):
+            metadata_array = find_by_index(epochs.events[i][0],
+                                           events_with_metadata)
+            item_amount = id_2_item(epochs.events[i][2])
+            metadata_array = np.append(metadata_array, item_amount)
+            metadata_array[1] = metadata_array[1] / sfreq
+            metadata_array[3] = metadata_array[3] / sfreq
 
-            metadata.loc[i] = metadata_tmp
+            metadata.loc[i] = metadata_array
 
         metadata[
             'Reaction time'] = metadata['Trial time'] - metadata['Maintenance']

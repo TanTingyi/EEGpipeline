@@ -1,14 +1,9 @@
 import os
-import sys
-sys.path.append(r'E:\Python\EEGpipeline')
 
 import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
+
 from eegp.paradigms import OneBack
 from eegp.path import FilePath
-
-sns.set_theme(style="whitegrid")
 
 
 def get_files_by_runs(dir, runs):

@@ -1,6 +1,3 @@
-import sys
-sys.path.append(r'E:\Python\EEGpipeline')
-
 import numpy as np
 from mne.datasets import eegbci
 

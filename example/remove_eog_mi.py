@@ -1,43 +1,44 @@
-import os
+import sys
+sys.path.append(r'E:\Python\EEGpipeline')
 
+import numpy as np
 from mne.datasets import eegbci
-from eegp.mi import MI
+
+from eegp.paradigms import MIFeetHand
+from eegp.path import FilePath
 
 
-class RemoveEOG(MI):
-    def pipeline(self, path):
-        """对单个被试使用ICA去除眼电，并保存结果
-        """
-        subject = 1
-        runs = [6, 10, 14]  # motor imagery: hands vs feet
-        raw_fnames = eegbci.load_data(subject, runs)
+def make_filepath(dir_save, subs):
+    filepaths = []
+    for i in subs:
+        load_path = eegbci.load_data(int(i), [4, 6, 8, 10, 12, 14])
+        filepaths.append(
+            FilePath(subject='s{}'.format(int(i)),
+                     filetype='edf',
+                     load_path=load_path,
+                     save_path=dir_save))
+    return filepaths
 
-        raw = self.get_raw(raw_fnames)
-        raw = self.preprocess(raw)
-        raw.save(path)
 
+class RemoveEOG(MIFeetHand):
+    def pipeline(self, filepaths):
+        self.read_raw(filepaths)
+        self.preprocess()
+        self.make_epochs()
+        self.make_data()
+        self.save_data()
 
-class RemoveGroupEOG(MI):
-    def pipeline(self, save_path):
-        """使用模板匹配的方法去除眼电，并保存结果
-        """
-        subjects = range(1, 5)
-        runs = [6, 10, 14]  # motor imagery: hands vs feet
-        paths = [eegbci.load_data(subject, runs) for subject in subjects]
-        raws = [self.get_raw(path) for path in paths]
-
-        raws = self.preprocess(raws)
-        for i, raw in enumerate(raws):
-            raw.save(os.path.join(save_path, str(i + 1) + '_raw.fif'))
 
 if __name__ == "__main__":
-    rm_group_eog = RemoveGroupEOG(tmin=1.,
-                                  tmax=2,
-                                  baseline=None,
-                                  reject=None,
-                                  filter_low=0.5,
-                                  filter_high=45.,
-                                  resample=160,
-                                  verbose=0)
-    path = r'/content'
-    rm_group_eog.pipeline(path)
+    rm_group_eog = RemoveEOG(tmin=1.,
+                             tmax=2.,
+                             baseline=None,
+                             reject=None,
+                             filter_low=0.5,
+                             filter_high=45.,
+                             resample=160,
+                             remove_eog=True)
+    group_size = 1
+    sub_group = np.array_split(np.arange(1, 2), group_size)
+    filepaths = make_filepath(r'E:\Data\tmp\mi', sub_group)
+    rm_group_eog.pipeline(filepaths)

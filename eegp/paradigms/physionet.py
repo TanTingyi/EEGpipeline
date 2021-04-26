@@ -9,13 +9,14 @@ import os
 import numpy as np
 import pandas as pd
 
-from mne import Epochs, events_from_annotations
-from mne.event import pick_events
+from mne import Epochs
 from mne.datasets import eegbci
 
 from .base import BaseParadigm
-from .utils import read_raw, remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..utils import _edge_index, _check_paths
+from ..path import check_paths
+from ..core import read_raw
+from ..core import remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
+from ..core import get_raw_edge_index
 
 
 class PhysioNetMI(BaseParadigm):
@@ -33,25 +34,32 @@ class PhysioNetMI(BaseParadigm):
                  reject=None,
                  remove_eog=False):
         """
-
         Parameters
         ----------
         tmin : int | float
-            提取数据的开始时间点
+            Start time before event. If nothing is provided, 
+            defaults to -0.2.
         tmax : int | float
-            提取数据的结束时间点
+            End time after event. If nothing is provided, 
+            defaults to 0.5.
         filter_low : None | int | float
-            带通滤波器的下截止频率
+            For FIR filters, the lower pass-band edge; 
+            If None the data are only low-passed.
         filter_high : None | int | float
-            带通滤波器的上截止频率
+            For FIR filters, the upper pass-band edge; 
+            If None the data are only high-passed.
         resample : int
-            重采样的采样频率
+            New sample rate to use.
         baseline : None | tuple
-            基线矫正的时间段，如果是 None 则不做基线矫正
-        reject : None | dict
-            阈值去除的阈值，例如 dict(eeg=200e-6) 将在
-            分 trail 的时候丢弃峰峰值为 200 mv 的数据段
-            为 None 时不启用
+            The time interval to consider as “baseline” when 
+            applying baseline correction. If None, do not apply 
+            baseline correction. 
+        reject : None | int
+            Reject epochs based on peak-to-peak signal amplitude.
+            unit: V
+        remove_eog : bool
+            Whether to remove EOG artifacts.
+
         """
         super(PhysioNetMI, self).__init__(code=code)
         self.tmin = tmin
@@ -62,33 +70,16 @@ class PhysioNetMI(BaseParadigm):
         self.baseline = baseline
         self.reject = reject
         self.remove_eog = remove_eog
-        self.__raws = []
-        self.__epochs = []
-        self.__paths = []
-        self._datas = []
-        self._labels = []
-
-    @property
-    def raws(self):
-        return self.__raws
-
-    @property
-    def epochs(self):
-        return self.__epochs
-
-    @property
-    def paths(self):
-        return self.__paths
 
     def read_raw(self, paths):
-        self.__paths = _check_paths(paths).copy()
-        self.__raws = read_raw(self.__paths)
+        self._paths = check_paths(paths)
+        self._raws = read_raw(self._paths)
 
     def preprocess(self):
-        if not self.__raws:
+        if not self._raws:
             raise RuntimeError('File not Loaded.')
 
-        for raw in self.__raws:
+        for raw in self._raws:
             eegbci.standardize(raw)  # set channel names
             # strip channel names of "." characters
             raw.rename_channels(lambda x: x.strip('.'))
@@ -100,18 +91,19 @@ class PhysioNetMI(BaseParadigm):
                        skip_by_annotation='edge')
 
         if self.remove_eog:
-            self.__raws = self._remove_eog(self.__raws)
+            self._raws = self._remove_eog(self._raws)
 
     def make_epochs(self):
-        if not self.__raws:
+        if not self._raws:
             raise RuntimeError(
                 'File haven\'t loaded yet, please load file first.')
-        self.__epochs = []
-        for raw in self.__raws:
-            events, event_id = self._define_trials(raw)
+        self._epochs = []
+        for raw in self._raws:
+            events_trials, event_id_trials = self._define_trials(
+                raw, ['T1', 'T2'])  # T1 T2 represent the stimulus
             epochs = Epochs(raw,
-                            events,
-                            event_id,
+                            events_trials,
+                            event_id_trials,
                             self.tmin - 0.2,
                             self.tmax + 0.2,
                             baseline=self.baseline,
@@ -120,7 +112,7 @@ class PhysioNetMI(BaseParadigm):
             epochs.metadata = self._metadata_from_raw(epochs, raw)
             epochs = self._filter_epochs(epochs)
             epochs.metadata = self._make_metadata(epochs.metadata)
-            self.__epochs.append(epochs.resample(self.resample))
+            self._epochs.append(epochs.resample(self.resample))
 
     def _remove_eog(self, raws):
         if len(raws) > 1:
@@ -137,23 +129,13 @@ class PhysioNetMI(BaseParadigm):
             ]
         return raws
 
-    def _define_trials(self, raw):
-        events_raw, event_id_raw = events_from_annotations(raw)
-        event_id_new = {
-            key: event_id_raw[key]
-            for key in event_id_raw if key in {'T1', 'T2'}
-        }
-        events_new = pick_events(events_raw,
-                                 include=list(event_id_new.values()))
-        return events_new, event_id_new
-
     def _metadata_from_raw(self, epochs, raw):
         runs_id = {
             'hands vs feet': set([6, 10, 14]),
             'left vs right': set([4, 8, 12])
         }
 
-        file_edges = _edge_index(raw)
+        file_edges = get_raw_edge_index(raw)
         file_2_run = lambda x: int(os.path.split(x)[1].split('R')[1][:2])
 
         # help function
@@ -174,14 +156,12 @@ class PhysioNetMI(BaseParadigm):
                         return 'left hands' if description == epochs.event_id[
                             'T1'] else 'right hands'
 
-        columns = ['Sample index', 'Task']
+        columns = ['Task']
         metadata = pd.DataFrame(columns=columns)
         for i in range(len(epochs.events)):
             index = epochs.events[i][0]
             task_type = index_2_type(index, epochs.events[i][2])
             metadata.loc[i] = np.array([index, task_type])
-
-        metadata['Sample index'] = metadata['Sample index'].map(int)
 
         return metadata
 
@@ -195,7 +175,7 @@ class MIFeetHand(PhysioNetMI):
     """Imagine raising feet or making fists.
     """
     def __init__(self, *args, **kwargs):
-        super(MIFeetHand, self).__init__(code='MI Feet And Hands',
+        super(MIFeetHand, self).__init__(code='Feet&Hands-PhysioNet',
                                          *args,
                                          **kwargs)
 
@@ -216,7 +196,7 @@ class MILeftRight(PhysioNetMI):
     """Imagine holding left or right hand.
     """
     def __init__(self, *args, **kwargs):
-        super(MILeftRight, self).__init__(code='MI Left And Right',
+        super(MILeftRight, self).__init__(code='Left&Right-PhysioNet',
                                           *args,
                                           **kwargs)
 

@@ -13,11 +13,12 @@ import pandas as pd
 
 from sklearn.preprocessing import quantile_transform
 from mne import Epochs, events_from_annotations, merge_events
-from mne.event import define_target_events, pick_events
+from mne.event import define_target_events
 
 from .base import BaseParadigm
-from .utils import read_raw, remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..utils import _check_paths
+from ..path import check_paths
+from ..core import read_raw
+from ..core import remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
 
 
 class LetterDelayMatch(BaseParadigm):
@@ -38,23 +39,28 @@ class LetterDelayMatch(BaseParadigm):
         Parameters
         ----------
         tmin : int | float
-            提取数据的开始时间点
+            Start time before event. If nothing is provided, 
+            defaults to -0.2.
         tmax : int | float
-            提取数据的结束时间点
+            End time after event. If nothing is provided, 
+            defaults to 0.5.
         filter_low : None | int | float
-            带通滤波器的下截止频率
+            For FIR filters, the lower pass-band edge; 
+            If None the data are only low-passed.
         filter_high : None | int | float
-            带通滤波器的上截止频率
+            For FIR filters, the upper pass-band edge; 
+            If None the data are only high-passed.
         resample : int
-            重采样的采样频率
+            New sample rate to use.
         baseline : None | tuple
-            基线矫正的时间段，如果是 None 则不做基线矫正
-        reject : None | dict
-            阈值去除的阈值，例如 dict(eeg=200e-6) 将在
-            分 trail 的时候丢弃峰峰值为 200 mv 的数据段
-            为 None 时不启用
+            The time interval to consider as “baseline” when 
+            applying baseline correction. If None, do not apply 
+            baseline correction. 
+        reject : None | int
+            Reject epochs based on peak-to-peak signal amplitude.
+            unit: V
         remove_eog : bool
-            是否去除眼电伪迹，默认为 False
+            Whether to remove EOG artifacts.
 
         """
         super(LetterDelayMatch, self).__init__(code=code)
@@ -66,33 +72,16 @@ class LetterDelayMatch(BaseParadigm):
         self.baseline = baseline
         self.reject = reject
         self.remove_eog = remove_eog
-        self.__raws = []
-        self.__epochs = []
-        self.__paths = []
-        self._datas = []
-        self._labels = []
-
-    @property
-    def raws(self):
-        return self.__raws
-
-    @property
-    def epochs(self):
-        return self.__epochs
-
-    @property
-    def paths(self):
-        return self.__paths
 
     def read_raw(self, paths):
-        self.__paths = _check_paths(paths).copy()
-        self.__raws = read_raw(self.__paths)
+        self._paths = check_paths(paths)
+        self._raws = read_raw(self._paths)
 
     def preprocess(self):
-        if not self.__raws:
+        if not self._raws:
             raise RuntimeError('File not Loaded.')
 
-        for raw in self.__raws:
+        for raw in self._raws:
             raw = channel_repair_exclud(
                 raw,
                 exclude=['CB1', 'CB2', 'HEO', 'VEO', 'M1', 'M2'],
@@ -102,28 +91,28 @@ class LetterDelayMatch(BaseParadigm):
                        skip_by_annotation='edge')
 
         if self.remove_eog:
-            self.__raws = self._remove_eog(self.__raws)
+            self._raws = self._remove_eog(self._raws)
 
     def make_epochs(self):
-        if not self.__raws:
+        if not self._raws:
             raise RuntimeError(
                 'File haven\'t loaded yet, please load file first.')
-        self.__epochs = []
-        for raw in self.__raws:
-            events_trials, event_id_trials = self._define_trials(raw)
+        self._epochs = []
+        for raw in self._raws:
+            events_trials, event_id_trials = self._define_trials(
+                raw, ['22', '44', '88'])  # 22 44 88 represent the stimulus
             epochs = Epochs(raw,
                             events_trials,
                             event_id_trials,
                             self.tmin - 0.2,
                             self.tmax + 0.2,
                             baseline=self.baseline,
-                            reject=self.reject,
+                            reject=dict(eeg=self.reject),
                             preload=True)
             epochs.metadata = self._metadata_from_raw(epochs, raw)
             epochs = self._filter_epochs(epochs)
             epochs.metadata = self._make_metadata(epochs.metadata)
-            self.__epochs.append(epochs.resample(self.resample))
-            del raw
+            self._epochs.append(epochs.resample(self.resample))
 
     def _remove_eog(self, raws):
         if len(raws) > 1:
@@ -140,31 +129,18 @@ class LetterDelayMatch(BaseParadigm):
             ]
         return raws
 
-    def _define_trials(self, raw):
-        memory_items = {'22', '44', '88'}
-        events_raw, event_id_raw = events_from_annotations(raw)
-        event_id_new = {
-            key: event_id_raw[key]
-            for key in event_id_raw if key in memory_items
-        }
-        events_new = pick_events(events_raw,
-                                 include=list(event_id_new.values()))
-        return events_new, event_id_new
-
     def _metadata_from_raw(self, epochs, raw):
-        """...22---------------122-----------------1/3...
-           ...|   maintenance   |   reaction time   |...
+        """...22---------------122-----------------1 or 3...
+           ...|   maintenance   |   reaction time     |...
         """
         events, event_id = events_from_annotations(raw)
         sfreq = raw.info['sfreq']
-        reaction_correct = event_id['1']  # correct button press
-        reaction_wrong = event_id['3']  # wrong button press
         item_id = 30
         cue_id = 31
-        maintenance_id = 50
-        correct_id = 41
-        wrong_id = 42
-        fill_na = 90
+        correct_id_new = 32
+        wrong_id_new = 33
+        correct_id = event_id['1']
+        wrong_id = event_id['3']
 
         # 1. merge event id.
         events_tmp = merge_events(
@@ -174,49 +150,39 @@ class LetterDelayMatch(BaseParadigm):
             events_tmp, [event_id['122'], event_id['144'], event_id['188']],
             new_id=cue_id)
 
-        # 2. clacluate maintenance between memory item and cue item
-        events_maintenance, maintenance = define_target_events(
-            events_tmp,
-            item_id,
-            cue_id,
-            sfreq,
-            tmin=3.2,
-            tmax=4.0,
-            new_id=maintenance_id,
-            fill_na=fill_na)
-        events_maintenance[:, 1] = maintenance
+        # 2. clacluate maintenance between memory item and cue
+        events_maintenance, maintenance_lag = define_target_events(events_tmp,
+                                                                   item_id,
+                                                                   cue_id,
+                                                                   sfreq,
+                                                                   tmin=3.2,
+                                                                   tmax=4.0)
+        maintenance_array = np.stack(
+            [events_maintenance[:, 0], maintenance_lag / 1000], axis=1)
 
-        # 3. clacluate duration of entire trial
-        events_correct, trial_time_correct = define_target_events(
+        # 3. clacluate duration between item and button
+        events_trial_correct, trial_lag_correct = define_target_events(
             events_tmp,
             item_id,
-            reaction_correct,
+            correct_id,
             sfreq,
             tmin=3.2,
             tmax=5.5,
-            new_id=correct_id,
-            fill_na=fill_na)
-        events_wrong, trial_time_wrong = define_target_events(events_tmp,
-                                                              item_id,
-                                                              reaction_wrong,
-                                                              sfreq,
-                                                              tmin=3.2,
-                                                              tmax=5.5,
-                                                              new_id=wrong_id,
-                                                              fill_na=fill_na)
-        events_tmp = np.concatenate([events_correct, events_wrong], axis=0)
-        trial_time = np.concatenate([trial_time_correct, trial_time_wrong],
-                                    axis=0)
-        events_with_metadata = np.append(events_tmp,
-                                         trial_time.reshape(-1, 1),
-                                         axis=1)
-        events_with_metadata = events_with_metadata[
-            events_with_metadata[:, 2] != float(fill_na)]
+            new_id=correct_id_new)
+        events_trial_wrong, trial_lag_wrong = define_target_events(
+            events_tmp,
+            item_id,
+            wrong_id,
+            sfreq,
+            tmin=3.2,
+            tmax=5.5,
+            new_id=wrong_id_new)
 
-        # 4. add maintenance to array
-        for event_with_metadata in events_with_metadata[:]:
-            event_with_metadata[1] = events_maintenance[
-                events_maintenance[:, 0] == event_with_metadata[0]][0][1]
+        events_trial = np.concatenate(
+            [events_trial_correct, events_trial_wrong], axis=0)
+        trial_lag = np.concatenate([trial_lag_correct, trial_lag_wrong],
+                                   axis=0)
+        trial_array = np.stack([events_trial[:, 0], trial_lag / 1000], axis=1)
 
         # help function
         def id_2_item(id):
@@ -230,20 +196,17 @@ class LetterDelayMatch(BaseParadigm):
         def find_by_index(index, array):
             return array[array[:, 0] == index]
 
-        # 5. create metadata from array
-        columns = [
-            'Sample index', 'Maintenance', 'Correct', 'Trial time',
-            'Item amount'
-        ]
+        # 4. create metadata from array
+        columns = ['Maintenance', 'Correct', 'Trial time', 'Item amount']
         metadata = pd.DataFrame(columns=columns)
         for i in range(len(epochs.events)):
-            metadata_array = find_by_index(epochs.events[i][0],
-                                           events_with_metadata)
+            maintenance = find_by_index(epochs.events[i][0],
+                                        maintenance_array)[0][1]
+            trial_time = find_by_index(epochs.events[i][0], trial_array)[0][1]
+            correct = find_by_index(epochs.events[i][0], events_trial)[0][2]
             item_amount = id_2_item(epochs.events[i][2])
-            metadata_array = np.append(metadata_array, item_amount)
-            metadata_array[1] = metadata_array[1] / sfreq
-            metadata_array[3] = metadata_array[3] / sfreq
-
+            metadata_array = np.array(
+                [maintenance, correct, trial_time, item_amount])
             metadata.loc[i] = metadata_array
 
         metadata[
@@ -251,11 +214,10 @@ class LetterDelayMatch(BaseParadigm):
 
         # 6. type transform
         metadata["Correct"] = metadata["Correct"].map({
-            correct_id: True,
-            wrong_id: False
+            correct_id_new: True,
+            wrong_id_new: False
         })
         metadata["Item amount"] = metadata["Item amount"].map(int)
-        metadata["Sample index"] = metadata["Sample index"].map(int)
 
         return metadata
 
@@ -279,6 +241,9 @@ class LetterDelayMatch(BaseParadigm):
                                                    3,
                                                    labels=[0, 0.5, 1])
         return metadata
+
+    def _filter_epochs(self, epochs):
+        return epochs['Maintenance > 3.3']
 
 
 class Letter248(LetterDelayMatch):

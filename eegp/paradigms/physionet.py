@@ -161,7 +161,7 @@ class PhysioNetMI(BaseParadigm):
         for i in range(len(epochs.events)):
             index = epochs.events[i][0]
             task_type = index_2_type(index, epochs.events[i][2])
-            metadata.loc[i] = np.array([index, task_type])
+            metadata.loc[i] = np.array([task_type])
 
         return metadata
 

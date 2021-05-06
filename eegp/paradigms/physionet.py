@@ -53,9 +53,6 @@ class PhysioNetMI(BaseParadigm):
             The time interval to consider as “baseline” when 
             applying baseline correction. If None, do not apply 
             baseline correction. 
-        reject : None | int
-            Reject epochs based on peak-to-peak signal amplitude.
-            unit: V
         remove_eog : bool
             Whether to remove EOG artifacts.
 
@@ -67,7 +64,6 @@ class PhysioNetMI(BaseParadigm):
         self.filter_high = filter_high
         self.resample = resample
         self.baseline = baseline
-        self.reject = reject
         self.remove_eog = remove_eog
 
     def read_raw(self, paths):

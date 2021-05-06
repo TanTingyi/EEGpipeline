@@ -49,11 +49,11 @@ if __name__ == "__main__":
     params = dict(tmin=0.,
                   tmax=5.,
                   baseline=None,
-                  reject=dict(eeg=500e-6),
                   filter_low=0.5,
                   filter_high=None,
                   resample=160,
                   remove_eog=False)
+                  
     for subs in sub_group:
         filepaths = make_filepath(dir_load, dir_save, subs)
         srt = Test(**params)

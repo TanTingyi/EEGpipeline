@@ -33,7 +33,6 @@ class LetterDelayMatch(BaseParadigm):
                  filter_high=None,
                  resample=160,
                  baseline=None,
-                 reject=None,
                  remove_eog=False):
         """
         Parameters
@@ -70,7 +69,6 @@ class LetterDelayMatch(BaseParadigm):
         self.filter_high = filter_high
         self.resample = resample
         self.baseline = baseline
-        self.reject = reject
         self.remove_eog = remove_eog
 
     def read_raw(self, paths):
@@ -107,7 +105,6 @@ class LetterDelayMatch(BaseParadigm):
                             self.tmin - 0.2,
                             self.tmax + 0.2,
                             baseline=self.baseline,
-                            reject=dict(eeg=self.reject),
                             preload=True)
             epochs.metadata = self._metadata_from_raw(epochs, raw)
             epochs = self._filter_epochs(epochs)

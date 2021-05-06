@@ -1,5 +1,13 @@
 """
 Bast class of paradigm.
+
+For each paradigm, there should be a unified preprocessing process. 
+Depending on the classification task, the same paradigm may has different 
+label definition rule. This means that two classes should be implemented, 
+where the parent class defines a unified preprocessing pipeline and adds metadata, 
+such as the response time of each trial, the type of stimulus, and so on. 
+The sub-category defines the label of the current classification task.
+
 Authors: Matthew Tan <5636374@qq.com>
 Time: 2021.4.15
 """

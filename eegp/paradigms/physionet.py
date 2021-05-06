@@ -31,7 +31,6 @@ class PhysioNetMI(BaseParadigm):
                  filter_high=30.,
                  resample=160,
                  baseline=None,
-                 reject=None,
                  remove_eog=False):
         """
         Parameters
@@ -107,7 +106,6 @@ class PhysioNetMI(BaseParadigm):
                             self.tmin - 0.2,
                             self.tmax + 0.2,
                             baseline=self.baseline,
-                            reject=dict(eeg=self.reject),
                             preload=True)
             epochs.metadata = self._metadata_from_raw(epochs, raw)
             epochs = self._filter_epochs(epochs)

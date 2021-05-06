@@ -1,12 +1,18 @@
 # EEGP
 Easy-to-use EEG preprocessing pipeline based on [MNE][]
 
-This project can help you build an EEG data  that is easy to share.
+This project can help you build an EEG data process pipeline that is easy to share.
 
 ## Background
-For beginners, processing EEG data is very complicated, and there are many to learn. At the same time, the pre-processing process is complicated, and even oneself is easy to forget details. This increases the difficulty for researchers to share scientific research results, and also makes it difficult to reproduce experimental results.
+For beginners, in order to preprocess EEG data, there is a lot of knowledge to know. At the same time, the pre-processing process is complicated, and even oneself may forget the details involved in preprocessing. This increases the difficulty for researchers to share scientific research results, and also makes it difficult to reproduce experimental results.
 
 By using a unified EEG data preprocessing pipeline, it is convenient for researchers to share their research results, and experimental results are more easily reproduced. At the same time, beginners can quickly get started by reading the preprocessing code of others.
+
+## Requirements
+mne
+pandas
+scikit-learn
+numpy
 
 ## Usage
 You can refer to the implemented classes in paradigms folder to create preprocessing pipeline of your own.
@@ -24,9 +30,9 @@ class SaveData(MIFeetHand):
         self.make_data()
         self.save_data()
 
-filepath = FilePath(subject='s1',
+filepath = FilePath(subject='S1',
                      filetype='edf',
-                     load_path='/tmp/data/s1.edf',
+                     load_path='/tmp/data/S001R04.edf',
                      save_path='/tmp/data')
 savedata = SaveData()
 savedata.pipeline(filepaths)

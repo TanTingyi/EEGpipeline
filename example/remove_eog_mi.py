@@ -30,7 +30,6 @@ if __name__ == "__main__":
     rm_group_eog = RemoveEOG(tmin=1.,
                              tmax=2.,
                              baseline=None,
-                             reject=0.2,
                              filter_low=0.5,
                              filter_high=45.,
                              resample=160,

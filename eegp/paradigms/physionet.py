@@ -7,16 +7,18 @@ Update time: 2021.4.20
 import os
 
 import numpy as np
-import pandas as pd
 
-from mne import Epochs
+from mne import Epochs, events_from_annotations
 from mne.datasets import eegbci
+from mne.epochs import make_metadata
 
 from .base import BaseParadigm
+from .utils import transform_event_id
 from ..path import check_paths
-from ..core import read_raw
-from ..core import remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
-from ..core import get_raw_edge_index
+from ..core.load import read_raw
+from ..core.preprocess import (remove_eog_template_ica, remove_eog_ica,
+                               channel_repair_exclud, band_pass_filter)
+from ..core.metadata import get_raw_edge_index
 
 
 class PhysioNetMI(BaseParadigm):
@@ -24,7 +26,6 @@ class PhysioNetMI(BaseParadigm):
     directly.
     """
     def __init__(self,
-                 code,
                  tmin,
                  tmax,
                  filter_low=7.,
@@ -57,7 +58,7 @@ class PhysioNetMI(BaseParadigm):
             Whether to remove EOG artifacts.
 
         """
-        super(PhysioNetMI, self).__init__(code=code)
+        super(PhysioNetMI, self).__init__(code='PhysioNet-MI')
         self.tmin = tmin
         self.tmax = tmax
         self.filter_low = filter_low
@@ -77,14 +78,11 @@ class PhysioNetMI(BaseParadigm):
         for raw in self._raws:
             eegbci.standardize(raw)  # set channel names
             # strip channel names of "." characters
-            raw.rename_channels(lambda x: x.strip('.'))
-            raw = channel_repair_exclud(raw,
-                                        exclude='bads',
-                                        montage='standard_1005')
-            raw.filter(self.filter_low,
-                       self.filter_high,
-                       skip_by_annotation='edge')
-
+        self._raws = channel_repair_exclud(self._raws,
+                                           exclude='bads',
+                                           montage='standard_1005')
+        self._raws = band_pass_filter(self._raws, self.filter_low,
+                                      self.filter_high)
         if self.remove_eog:
             self._raws = self._remove_eog(self._raws)
 
@@ -94,16 +92,16 @@ class PhysioNetMI(BaseParadigm):
                 'File haven\'t loaded yet, please load file first.')
         self._epochs = []
         for raw in self._raws:
-            events_trials, event_id_trials = self._define_trials(
-                raw, ['T1', 'T2'])  # T1 T2 represent the stimulus
+            events, event_id, metadata = self._metadata_from_raw(raw)
             epochs = Epochs(raw,
-                            events_trials,
-                            event_id_trials,
-                            self.tmin - 0.2,
+                            events,
+                            event_id,
+                            self.tmin - 0.5,
                             self.tmax + 0.2,
                             baseline=self.baseline,
+                            metadata=metadata,
                             preload=True)
-            epochs.metadata = self._metadata_from_raw(epochs, raw)
+
             epochs = self._filter_epochs(epochs)
             epochs.metadata = self._make_metadata(epochs.metadata)
             self._epochs.append(epochs.resample(self.resample))
@@ -123,86 +121,85 @@ class PhysioNetMI(BaseParadigm):
             ]
         return raws
 
-    def _metadata_from_raw(self, epochs, raw):
-        runs_id = {
-            'hands vs feet': set([6, 10, 14]),
-            'left vs right': set([4, 8, 12])
-        }
+    def _metadata_from_raw(self, raw):
+        self._transform_event_id(raw)
+        all_events, all_event_id = events_from_annotations(raw)
 
-        file_edges = get_raw_edge_index(raw)
-        file_2_run = lambda x: int(os.path.split(x)[1].split('R')[1][:2])
+        row_events = [
+            'stimulus/imagine/hands/all', 'stimulus/imagine/feet/all',
+            'stimulus/imagine/hands/left', 'stimulus/imagine/hands/right'
+        ]
+        keep_first = ['stimulus']
+        metadata_tmin, metadata_tmax = 0.0, 4
 
-        # help function
-        def index_2_run(index):
-            for filename, (onset, end) in file_edges.items():
-                if onset <= index <= end:
-                    run = file_2_run(filename)
-                    return run
+        metadata, events, event_id = make_metadata(events=all_events,
+                                                   event_id=all_event_id,
+                                                   tmin=metadata_tmin,
+                                                   tmax=metadata_tmax,
+                                                   sfreq=raw.info['sfreq'],
+                                                   row_events=row_events,
+                                                   keep_first=keep_first)
+        # all times of the time-locked events should be zero
+        assert all(metadata['stimulus'] == 0)
+        return events, event_id, metadata
 
-        def index_2_type(index, description):
-            run = index_2_run(index)
-            for run_type, runs in runs_id.items():
-                if run in runs:
-                    if run_type == 'hands vs feet':
-                        return 'hands' if description == epochs.event_id[
-                            'T1'] else 'feet'
-                    elif run_type == 'left vs right':
-                        return 'left hands' if description == epochs.event_id[
-                            'T1'] else 'right hands'
+    def _transform_event_id(self, raw):
+        def description_transform(raw):
+            new_event_id = {
+                'rest': 0,
+                'stimulus/imagine/hands/all': 1,
+                'stimulus/imagine/feet/all': 2,
+                'stimulus/imagine/hands/left': 3,
+                'stimulus/imagine/hands/right': 4
+            }
+            all_events, all_event_id = events_from_annotations(raw)
+            file_edges = get_raw_edge_index(raw)
 
-        columns = ['Task']
-        metadata = pd.DataFrame(columns=columns)
-        for i in range(len(epochs.events)):
-            index = epochs.events[i][0]
-            task_type = index_2_type(index, epochs.events[i][2])
-            metadata.loc[i] = np.array([task_type])
+            # help function
+            def index_2_run(index):
+                for filename, (onset, end) in file_edges.items():
+                    if onset <= index <= end:
+                        run = int(os.path.split(filename)[1].split('R')[1][:2])
+                        return run
 
-        return metadata
+            def description_transform_by_run(run, old_description):
+                runs_id = {
+                    'hands&feet': set([6, 10, 14]),
+                    'left&right': set([4, 8, 12])
+                }
+                for run_type, runs in runs_id.items():
+                    if run in runs:
+                        if run_type == 'hands&feet':
+                            if old_description == all_event_id['T1']:
+                                return 1
+                            elif old_description == all_event_id['T2']:
+                                return 2
+                            elif old_description == all_event_id['T0']:
+                                return 0
+                        elif run_type == 'left&right':
+                            if old_description == all_event_id['T1']:
+                                return 3
+                            elif old_description == all_event_id['T2']:
+                                return 4
+                            elif old_description == all_event_id['T0']:
+                                return 0
 
-    def _make_metadata(self, metadata):
-        label_map = {'hands': 0, 'feet': 1, 'left hands': 2, 'right hands': 3}
-        metadata['Label'] = metadata['Task'].map(label_map)
-        return metadata
+            def mapfunc(event):
+                run = index_2_run(event[0])
+                new_description = description_transform_by_run(run, event[2])
+                return [event[0], event[1], new_description]
 
+            new_events = np.array(list(map(mapfunc, all_events)))
+            return new_events, new_event_id
 
-class MIFeetHand(PhysioNetMI):
-    """Imagine raising feet or making fists.
-    """
-    def __init__(self, *args, **kwargs):
-        super(MIFeetHand, self).__init__(code='Feet&Hands-PhysioNet',
-                                         *args,
-                                         **kwargs)
+        transform_event_id(raw, description_transform=description_transform)
 
     def make_data(self):
         if not self.epochs:
             self.make_epochs()
-        self._datas = []
-        self._labels = []
-        for epoch in self.epochs:
-            self._datas.append(epoch['Label == 1 or Label == 2'].copy().crop(
-                tmin=self.tmin, tmax=self.tmax,
-                include_tmax=False).get_data().astype(np.float32))
-            self._labels.append(
-                epoch['Label == 1 or Label == 2'].metadata['Label'].to_numpy())
-
-
-class MILeftRight(PhysioNetMI):
-    """Imagine holding left or right hand.
-    """
-    def __init__(self, *args, **kwargs):
-        super(MILeftRight, self).__init__(code='Left&Right-PhysioNet',
-                                          *args,
-                                          **kwargs)
-
-    def make_data(self):
-        if not self.epochs:
-            self.make_epochs()
 
         self._datas = []
-        self._labels = []
         for epoch in self.epochs:
-            self._datas.append(epoch['Label == 3 or Label == 4'].copy().crop(
+            self._datas.append(epoch.copy().crop(
                 tmin=self.tmin, tmax=self.tmax,
                 include_tmax=False).get_data().astype(np.float32))
-            self._labels.append(
-                epoch['Label == 3 or Label == 4'].metadata['Label'].to_numpy())

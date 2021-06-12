@@ -17,7 +17,6 @@ from copy import deepcopy
 
 import numpy as np
 
-from .utils import pick_events_
 from ..path import create_dir
 
 
@@ -52,7 +51,6 @@ class BaseParadigm(metaclass=abc.ABCMeta):
         self._epochs = []
         self._paths = []
         self._datas = []
-        self._labels = []
 
     @property
     def raws(self):
@@ -69,10 +67,6 @@ class BaseParadigm(metaclass=abc.ABCMeta):
     @property
     def datas(self):
         return deepcopy(self._datas)
-
-    @property
-    def labels(self):
-        return deepcopy(self._labels)
 
     @abc.abstractmethod
     def read_raw(self, paths):
@@ -276,11 +270,10 @@ class BaseParadigm(metaclass=abc.ABCMeta):
         -----
         The saved file can be read by np.load()
         >>>    with np.load(file) as f:
-        >>>        dataset = f['data']
-        >>>        label = f['label']
+        >>>        data = f['data']
         """
         save_paths = []
-        for data, label, path in zip(self._datas, self._labels, self.paths):
+        for data, path in zip(self._datas, self.paths):
             try:
                 data_path = os.path.join(path.save_path, 'data')
             except TypeError:
@@ -288,7 +281,7 @@ class BaseParadigm(metaclass=abc.ABCMeta):
                     path.subject))
             create_dir(data_path)
             save_path = os.path.join(data_path, path.subject)
-            np.savez(save_path, data=data, label=label)
+            np.save(save_path, data)
             save_paths.append(save_path)
         return save_paths
 
@@ -320,47 +313,23 @@ class BaseParadigm(metaclass=abc.ABCMeta):
             save_paths.append(save_path)
         return save_paths
 
-    def _define_trials(self, raw, trial_ids):
-        """Return new events and event_id for create epochs.
-        
-        Parameters         
-        ----------
-        raw : mne.Raw
-            An instance of Raw.
-        trial_ids : list
-            All the id in the raw.annotation that represent the 
-            beginning of the trial that you want to use.
-
-        Returns
-        -------
-        events_new : array, shape (n_events, 3)
-            The new defined events.
-        event_id_new : dict
-            The id of trials.
-
-        Notes
-        -----
-        It is possible that annotation contains useless
-        describe. In order to ignore irrelevant describe 
-        when dividing trial, you need to specify the id that 
-        represents the beginning of the trials.
-        """
-        return pick_events_(raw, trial_ids)
-
-    def _metadata_from_raw(self, epochs, raw):
+    def _metadata_from_raw(self, raw):
         """Return a DataFrame containing metadata.
 
         Add corresponding metadata for each epoch in epochs.
         
         Parameters         
         ----------
-        epochs : mne.Epochs
-            Epochs instance made in self.make_epochs()
         raw : mne.Raw
             An instance of Raw.
 
         Returns
         -------
+        events : array, shape (n, 3)
+            The events corresponding to the generated metadata, i.e. 
+            one time-locked event per row.
+        event_id : dict
+            The event dictionary corresponding to the new events array. 
         metadata : DataFrame
             Metadata corresponding to epochs.
 
@@ -414,3 +383,25 @@ class BaseParadigm(metaclass=abc.ABCMeta):
         -----
         """
         return epochs
+
+    def _transform_event_id(self, raw):
+        """Transform the description in the Raw. 
+
+        Transform the description from numbers or letters to the 
+        format of xxx/xxx/xxx. i.e. 'stimulus/compatible/target_left'. 
+        You can learn more details on 
+        "https://mne.tools/stable/auto_tutorials/epochs/40_autogenerate_metadata.html"
+
+        Parameters         
+        ----------
+        epochs : mne.Epochs
+            Epochs instance made in self.make_epochs()
+
+        Returns
+        -------
+        None 
+        
+        Notes
+        -----
+        """
+        pass

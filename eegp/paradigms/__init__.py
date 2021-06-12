@@ -1,2 +1,2 @@
-from .delaymatch import Letter248, LetterSRT
-from .physionet import MIFeetHand, MILeftRight
+from .delaymatch import LetterDelayMatch
+from .physionet import PhysioNetMI

@@ -1,7 +1,7 @@
 import numpy as np
 from mne.datasets import eegbci
 
-from eegp.paradigms import MIFeetHand
+from eegp.paradigms import PhysioNetMI
 from eegp.path import FilePath
 
 
@@ -17,13 +17,14 @@ def make_filepath(dir_save, subs):
     return filepaths
 
 
-class RemoveEOG(MIFeetHand):
+class RemoveEOG(PhysioNetMI):
     def pipeline(self, filepaths):
         self.read_raw(filepaths)
         self.preprocess()
         self.make_epochs()
         self.make_data()
         self.save_data()
+        self.save_metadata()
 
 
 if __name__ == "__main__":

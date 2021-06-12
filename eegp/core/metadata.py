@@ -2,8 +2,10 @@ from mne.annotations import _annotations_starts_stops
 
 
 def get_raw_edge_index(raw):
-    """Returns the onset and ends index of the file splicing in
-    the raw object. This method is very useful when using file 
+    """Returns the onset and ends index of the file splicing 
+    in the raw object. 
+    
+    This method is very useful when using file 
     names to define metadata.
 
     Parameters

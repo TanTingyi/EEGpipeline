@@ -102,13 +102,13 @@ def _read_mat(filepath):
 
 def _read_func(filetype, filepath):
     if filetype == 'cnt':
-        return read_raw_cnt(filepath, preload=True)
+        return read_raw_cnt(filepath, preload=True, verbose=0)
     elif filetype == 'edf':
-        return read_raw_edf(filepath, preload=True)
+        return read_raw_edf(filepath, preload=True, verbose=0)
     elif filetype == 'bdf':
-        return read_raw_bdf(filepath, preload=True)
+        return read_raw_bdf(filepath, preload=True, verbose=0)
     elif filetype == 'brk':
-        return read_raw_brk(filepath, preload=True)
+        return read_raw_brk(filepath, preload=True, verbose=0)
 
 
 def read_raw(paths):

@@ -11,27 +11,27 @@ Update time: 2021.4.20
 import numpy as np
 import pandas as pd
 
-from sklearn.preprocessing import quantile_transform
-from mne import Epochs, events_from_annotations, merge_events
-from mne.event import define_target_events
+from mne import Epochs, events_from_annotations
+from mne.epochs import make_metadata
 
 from .base import BaseParadigm
+from .utils import transform_event_id
 from ..path import check_paths
-from ..core import read_raw
-from ..core import remove_eog_template_ica, remove_eog_ica, channel_repair_exclud
+from ..core.load import read_raw
+from ..core.preprocess import (remove_eog_template_ica, remove_eog_ica,
+                               channel_repair_exclud, rest_reference,
+                               band_pass_filter)
 
 
 class LetterDelayMatch(BaseParadigm):
-    """This class provides preprocess pipeline and should never be instantiated
-    directly.
+    """This class provides preprocess pipeline.
     """
     def __init__(self,
-                 code,
                  tmin,
                  tmax,
-                 filter_low=0.5,
+                 filter_low=1,
                  filter_high=None,
-                 resample=160,
+                 resample=250,
                  baseline=None,
                  remove_eog=False):
         """
@@ -59,7 +59,7 @@ class LetterDelayMatch(BaseParadigm):
             Whether to remove EOG artifacts.
 
         """
-        super(LetterDelayMatch, self).__init__(code=code)
+        super(LetterDelayMatch, self).__init__(code='Delay Match Letter')
         self.tmin = tmin
         self.tmax = tmax
         self.filter_low = filter_low
@@ -75,18 +75,15 @@ class LetterDelayMatch(BaseParadigm):
     def preprocess(self):
         if not self._raws:
             raise RuntimeError('File not Loaded.')
-
-        for raw in self._raws:
-            raw = channel_repair_exclud(
-                raw,
-                exclude=['CB1', 'CB2', 'HEO', 'VEO', 'M1', 'M2'],
-                montage='standard_1020')
-            raw.filter(self.filter_low,
-                       self.filter_high,
-                       skip_by_annotation='edge')
-
+        self._raws = channel_repair_exclud(
+            self._raws,
+            exclude=['CB1', 'CB2', 'HEO', 'VEO', 'M1', 'M2'],
+            montage='standard_1020')
+        self._raws = band_pass_filter(self._raws, self.filter_low,
+                                      self.filter_high)
         if self.remove_eog:
             self._raws = self._remove_eog(self._raws)
+        self._raws = rest_reference(self._raws)
 
     def make_epochs(self):
         if not self._raws:
@@ -94,19 +91,42 @@ class LetterDelayMatch(BaseParadigm):
                 'File haven\'t loaded yet, please load file first.')
         self._epochs = []
         for raw in self._raws:
-            events_trials, event_id_trials = self._define_trials(
-                raw, ['22', '44', '88'])  # 22 44 88 represent the stimulus
+            events, event_id, metadata = self._metadata_from_raw(raw)
             epochs = Epochs(raw,
-                            events_trials,
-                            event_id_trials,
-                            self.tmin - 0.2,
+                            events,
+                            event_id,
+                            self.tmin - 0.5,
                             self.tmax + 0.2,
                             baseline=self.baseline,
+                            metadata=metadata,
                             preload=True)
-            epochs.metadata = self._metadata_from_raw(epochs, raw)
+
             epochs = self._filter_epochs(epochs)
             epochs.metadata = self._make_metadata(epochs.metadata)
             self._epochs.append(epochs.resample(self.resample))
+
+    def make_data(self):
+        if not self.epochs:
+            self.make_epochs()
+
+        self._datas = []
+        for epoch in self.epochs:
+            self._datas.append(epoch.copy().crop(
+                tmin=self.tmin, tmax=self.tmax,
+                include_tmax=False).get_data().astype(np.float32))
+
+    def _transform_event_id(self, raw):
+        transform_dic = {
+            '22': 'stimulus/memory/item_2',
+            '44': 'stimulus/memory/item_4',
+            '88': 'stimulus/memory/item_8',
+            '122': 'stimulus/test/item_2',
+            '144': 'stimulus/test/item_4',
+            '188': 'stimulus/test/item_8',
+            '1': 'response/correct',
+            '3': 'response/wrong'
+        }
+        transform_event_id(raw, transform_dic)
 
     def _remove_eog(self, raws):
         if len(raws) > 1:
@@ -123,163 +143,50 @@ class LetterDelayMatch(BaseParadigm):
             ]
         return raws
 
-    def _metadata_from_raw(self, epochs, raw):
+    def _metadata_from_raw(self, raw):
         """...22---------------122-----------------1 or 3...
            ...|   maintenance   |   reaction time     |...
         """
-        events, event_id = events_from_annotations(raw)
-        sfreq = raw.info['sfreq']
-        item_id = 30
-        cue_id = 31
-        correct_id_new = 32
-        wrong_id_new = 33
-        correct_id = event_id['1']
-        wrong_id = event_id['3']
+        self._transform_event_id(raw)
+        all_events, all_event_id = events_from_annotations(raw)
+        row_events = [
+            'stimulus/memory/item_2',
+            'stimulus/memory/item_4',
+            'stimulus/memory/item_8',
+        ]
+        keep_first = ['stimulus', 'test', 'response']
+        metadata_tmin, metadata_tmax = 0.0, 5.5
 
-        # 1. merge event id.
-        events_tmp = merge_events(
-            events, [event_id['22'], event_id['44'], event_id['88']],
-            new_id=item_id)
-        events_tmp = merge_events(
-            events_tmp, [event_id['122'], event_id['144'], event_id['188']],
-            new_id=cue_id)
-
-        # 2. clacluate maintenance between memory item and cue
-        events_maintenance, maintenance_lag = define_target_events(events_tmp,
-                                                                   item_id,
-                                                                   cue_id,
-                                                                   sfreq,
-                                                                   tmin=3.2,
-                                                                   tmax=4.0)
-        maintenance_array = np.stack(
-            [events_maintenance[:, 0], maintenance_lag / 1000], axis=1)
-
-        # 3. clacluate duration between item and button
-        events_trial_correct, trial_lag_correct = define_target_events(
-            events_tmp,
-            item_id,
-            correct_id,
-            sfreq,
-            tmin=3.2,
-            tmax=5.5,
-            new_id=correct_id_new)
-        events_trial_wrong, trial_lag_wrong = define_target_events(
-            events_tmp,
-            item_id,
-            wrong_id,
-            sfreq,
-            tmin=3.2,
-            tmax=5.5,
-            new_id=wrong_id_new)
-
-        events_trial = np.concatenate(
-            [events_trial_correct, events_trial_wrong], axis=0)
-        trial_lag = np.concatenate([trial_lag_correct, trial_lag_wrong],
-                                   axis=0)
-        trial_array = np.stack([events_trial[:, 0], trial_lag / 1000], axis=1)
-
-        # help function
-        def id_2_item(id):
-            if id == event_id['22']:
-                return 2
-            elif id == event_id['44']:
-                return 4
-            elif id == event_id['88']:
-                return 8
-
-        def find_by_index(index, array):
-            return array[array[:, 0] == index]
-
-        # 4. create metadata from array
-        columns = ['Maintenance', 'Correct', 'Trial time', 'Item amount']
-        metadata = pd.DataFrame(columns=columns)
-        for i in range(len(epochs.events)):
-            maintenance = find_by_index(epochs.events[i][0],
-                                        maintenance_array)[0][1]
-            trial_time = find_by_index(epochs.events[i][0], trial_array)[0][1]
-            correct = find_by_index(epochs.events[i][0], events_trial)[0][2]
-            item_amount = id_2_item(epochs.events[i][2])
-            metadata_array = np.array(
-                [maintenance, correct, trial_time, item_amount])
-            metadata.loc[i] = metadata_array
-
-        metadata[
-            'Reaction time'] = metadata['Trial time'] - metadata['Maintenance']
-
-        # 6. type transform
-        metadata["Correct"] = metadata["Correct"].map({
-            correct_id_new: True,
-            wrong_id_new: False
-        })
-        metadata["Item amount"] = metadata["Item amount"].map(int)
-
-        return metadata
+        metadata, events, event_id = make_metadata(events=all_events,
+                                                   event_id=all_event_id,
+                                                   tmin=metadata_tmin,
+                                                   tmax=metadata_tmax,
+                                                   sfreq=raw.info['sfreq'],
+                                                   row_events=row_events,
+                                                   keep_first=keep_first)
+        # all times of the time-locked events should be zero
+        assert all(metadata['stimulus'] == 0)
+        return events, event_id, metadata
 
     def _make_metadata(self, metadata):
+        metadata['response_time'] = metadata['response'] - metadata['test']
         # add srt
         reaction_time_max = 1.617
-        srt = lambda x: reaction_time_max - x['Reaction time'] if x[
-            'Correct'] else x['Reaction time'] - reaction_time_max
-        metadata['SRT'] = metadata.apply(srt, axis=1)
-        metadata['SRT_normal'] = quantile_transform(
-            metadata['SRT'].to_numpy().reshape(-1, 1),
-            output_distribution='normal',
-            copy=True).squeeze()
-        metadata['SRT_bins_freq'] = pd.qcut(metadata['SRT'],
+
+        def srt(x):
+            if x['first_response'] == 'correct':
+                return reaction_time_max - x['response_time']
+            else:
+                return x['response_time'] - reaction_time_max
+
+        metadata['srt'] = metadata.apply(srt, axis=1)
+        metadata['srt_bins_freq'] = pd.qcut(metadata['srt'],
                                             3,
-                                            labels=[0, 0.5, 1])
-        metadata['SRT_bins_width'] = pd.cut(metadata['SRT'],
-                                            3,
-                                            labels=[0, 0.5, 1])
-        metadata['SRT_normal_bins_width'] = pd.cut(metadata['SRT_normal'],
-                                                   3,
-                                                   labels=[0, 0.5, 1])
+                                            labels=[0, 1, 2])
+        bins = 3
+        bins_edges = np.linspace(-reaction_time_max, reaction_time_max,
+                                 bins + 1)
+        metadata['srt_distribution_3'] = pd.cut(metadata['srt'],
+                                                bins_edges,
+                                                labels=[0, 1, 2])
         return metadata
-
-    def _filter_epochs(self, epochs):
-        return epochs['Maintenance > 3.3']
-
-
-class Letter248(LetterDelayMatch):
-    """延时匹配-字母，根据刺激的数量定义标签
-    """
-    def __init__(self, *args, **kwargs):
-        super(Letter248, self).__init__(code='Delay Match Letter 248',
-                                        *args,
-                                        **kwargs)
-
-    def make_data(self):
-        if not self.epochs:
-            self.make_epochs()
-
-        self._datas = []
-        self._labels = []
-        for epoch in self.epochs:
-            self._datas.append(epoch.copy().crop(
-                tmin=self.tmin, tmax=self.tmax,
-                include_tmax=False).get_data().astype(np.float32))
-            self._labels.append(epoch.metadata['Item amount'].to_numpy())
-
-
-class LetterSRT(LetterDelayMatch):
-    """延时匹配-字母，根据SRT定义标签
-    """
-    def __init__(self, *args, **kwargs):
-        super(LetterSRT, self).__init__(code='Delay Match Letter SRT',
-                                        *args,
-                                        **kwargs)
-
-    def _filter_epochs(self, epochs):
-        return epochs['Maintenance > 3.5']
-
-    def make_data(self):
-        if not self.epochs:
-            self.make_epochs()
-
-        self._datas = []
-        self._labels = []
-        for epoch in self.epochs:
-            self._datas.append(epoch.copy().crop(
-                tmin=self.tmin, tmax=self.tmax,
-                include_tmax=False).get_data().astype(np.float32))
-            self._labels.append(epoch.metadata['SRT_bins_freq'].to_numpy())

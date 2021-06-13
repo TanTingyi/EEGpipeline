@@ -22,8 +22,7 @@ from ..core.metadata import get_raw_edge_index
 
 
 class PhysioNetMI(BaseParadigm):
-    """This class provides preprocess pipeline and should never be instantiated
-    directly.
+    """This class provides preprocess pipeline.
     """
     def __init__(self,
                  tmin,

@@ -1,6 +1,5 @@
 import numpy as np
 from mne.datasets import eegbci
-
 from eegp.paradigms import PhysioNetMI
 from eegp.path import FilePath
 
@@ -24,16 +23,15 @@ class RemoveEOG(PhysioNetMI):
         self.make_epochs()
         self.make_data()
         self.save_data()
-        self.save_metadata()
 
 
 if __name__ == "__main__":
-    rm_group_eog = RemoveEOG(tmin=1.,
-                             tmax=2.,
+    rm_group_eog = RemoveEOG(tmin=0.,
+                             tmax=1.,
                              baseline=None,
                              filter_low=0.5,
                              filter_high=45.,
-                             resample=160,
+                             resample=128,
                              remove_eog=True)
     group_size = 1
     sub_group = np.array_split(np.arange(1, 6), group_size)

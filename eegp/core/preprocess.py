@@ -55,11 +55,12 @@ def remove_eog_ica(raw, n_components, ch_name, threshold):
     -----
     """
     ica = ICA(n_components=n_components, max_iter='auto')
-    ica.fit(raw)
+    ica.fit(raw, verbose=0)
     while threshold > 1:
         eog_inds, _ = ica.find_bads_eog(raw,
                                         ch_name=ch_name,
-                                        threshold=threshold)
+                                        threshold=threshold,
+                                        verbose=0)
         if eog_inds:
             break
         threshold -= 0.3
@@ -69,7 +70,7 @@ def remove_eog_ica(raw, n_components, ch_name, threshold):
 
     ica.plot_properties(raw, eog_inds)
     ica.exclude = eog_inds
-    ica.apply(raw)
+    ica.apply(raw, verbose=0)
     return raw
 
 
@@ -96,11 +97,12 @@ def remove_eog_template_ica(raws, n_components, ch_name, threshold):
     -----
     """
     icas = [
-        ICA(n_components=n_components, max_iter='auto').copy().fit(raw)
+        ICA(n_components=n_components, max_iter='auto').copy().fit(raw,
+                                                                   verbose=0)
         for raw in raws
     ]
     for raw, ica in zip(raws, icas):
-        eog_inds, _ = ica.find_bads_eog(raw, ch_name=ch_name)
+        eog_inds, _ = ica.find_bads_eog(raw, ch_name=ch_name, verbose=0)
         if eog_inds:
             break
     if not eog_inds:
@@ -114,7 +116,7 @@ def remove_eog_template_ica(raws, n_components, ch_name, threshold):
                 label='blink')
     for raw, ica in zip(raws, icas):
         ica.exclude = ica.labels_['blink']
-        ica.apply(raw)
+        ica.apply(raw, verbose=0)
     return raws
 
 
@@ -170,6 +172,9 @@ def band_pass_filter(raws, low, high):
     if not isinstance(raws, list):
         raws = [raws]
     for raw in raws:
-        raw.filter(low, high, skip_by_annotation='edge', method='iir')
+        raw.filter(low,
+                   high,
+                   skip_by_annotation='edge',
+                   method='iir',
+                   verbose=0)
     return raws
-    
